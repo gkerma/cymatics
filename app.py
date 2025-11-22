@@ -108,22 +108,26 @@ else:
     wave_type = st.selectbox("Forme d’onde", ["Sinus", "Carré", "Dent de scie"], key="piano_wave")
     loop = st.checkbox("Lecture en boucle (accord)")
 
-    if st.button("Jouer l’accord"):
+if st.button("Jouer l’accord"):
 
-        if not selected_notes:
-            st.warning("Choisis au moins une touche.")
+    if not selected_notes:
+        st.warning("Choisis au moins une touche.")
+    else:
+        waves = [generate_wave(notes_freq[n], duration, wave_type, volume) for n in selected_notes]
+
+        # CORRECTION ICI
+        mix = np.sum(waves, axis=0).astype(np.float64)
+        norm = np.max(np.abs(mix)) + 1e-9
+        mix = mix / norm
+
+        audio = np.int16(mix * 32767)
+
+        if loop:
+            play_audio_loop(audio)
         else:
-            waves = [generate_wave(notes_freq[n], duration, wave_type, volume) for n in selected_notes]
-            mix = np.sum(waves, axis=0)
-            mix /= np.max(np.abs(mix)) + 1e-9
-            audio = np.int16(mix * 32767)
+            buffer = BytesIO()
+            wavfile.write(buffer, sample_rate, audio)
+            buffer.seek(0)
+            st.audio(buffer, format="audio/wav")
 
-            if loop:
-                play_audio_loop(audio)
-            else:
-                buffer = BytesIO()
-                wavfile.write(buffer, sample_rate, audio)
-                buffer.seek(0)
-                st.audio(buffer, format="audio/wav")
-
-            st.success("Accord : " + ", ".join(selected_notes))
+        st.success("Accord : " + ", ".join(selected_notes))
