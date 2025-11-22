@@ -8,15 +8,13 @@ st.set_page_config(page_title="Audio Tools", layout="wide")
 
 st.title("🎵 Outils Audio : Générateur + Piano")
 
-# -------------------------------------------------------------
-# Sélecteur de mode
-# -------------------------------------------------------------
-mode = st.selectbox("Mode :", ["Générateur de fréquence", "Piano"])
-
+# Durée interne très longue pour éliminer le tick du restart HTML
+BUFFER_LENGTH = 60.0      # en secondes (tu peux mettre 120.0, 300.0, etc.)
 sample_rate = 44100
 
+
 # -------------------------------------------------------------
-# Fonction utilitaire : encoder WAV en HTML audio loop
+# Fonction utilitaire : lecture HTML en boucle longue
 # -------------------------------------------------------------
 def play_audio_loop(audio_data):
     buffer = BytesIO()
@@ -37,7 +35,7 @@ def play_audio_loop(audio_data):
 # -------------------------------------------------------------
 # Générateur de forme d'onde
 # -------------------------------------------------------------
-def generate_wave(freq, duration, wave_type, volume):
+def generate_wave(freq, duration, wave_type, volume, buffer_length=BUFFER_LENGTH):
     t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
 
     if wave_type == "Sinus":
@@ -50,29 +48,41 @@ def generate_wave(freq, duration, wave_type, volume):
         wave = np.sin(2 * np.pi * freq * t)
 
     wave = volume * wave
-    return np.int16(wave * 32767)
+
+    # Répétition pour fabriquer un fichier très long
+    repeat_count = int(buffer_length // duration) + 1
+    long_wave = np.tile(wave, repeat_count)
+    long_wave = long_wave[:int(buffer_length * sample_rate)]
+
+    return np.int16(long_wave * 32767)
+
+
+# -------------------------------------------------------------
+# Sélecteur de mode
+# -------------------------------------------------------------
+mode = st.selectbox("Mode :", ["Générateur de fréquence", "Piano polyphonique"])
 
 
 # =====================================================================
-#   MODE 1 : GENERATEUR DE FREQUENCE AVEC BOUCLE
+#   MODE 1 : GENERATEUR DE FREQUENCE
 # =====================================================================
 if mode == "Générateur de fréquence":
 
-    st.header("Générateur de fréquence")
+    st.header("Générateur de fréquence simple (boucle longue)")
 
-    # Entrée de fréquence
     freq = st.number_input("Fréquence (Hz)", min_value=1.0, max_value=20000.0, value=440.0)
-    freq_slider = st.slider("Slider : 50–2000 Hz", 50, 2000, int(freq))
+    freq_slider = st.slider("Ajustement rapide (50–2000 Hz)", 50, 2000, int(freq))
     freq = float(freq_slider)
 
-    duration = st.slider("Durée (secondes)", 0.1, 300.0, 1.0, 0.1)
+    duration = st.slider("Durée du cycle (s)", 0.1, 300.0, 1.0)
     wave_type = st.selectbox("Forme d’onde", ["Sinus", "Carré", "Dent de scie"])
     volume = st.slider("Volume", 0.0, 1.0, 0.5)
-    loop = st.checkbox("Lecture en boucle")
+
+    loop = st.checkbox("Lecture en boucle (60 secondes de buffer)")
 
     if st.button("Générer le son"):
 
-        audio_data = generate_wave(freq, duration, wave_type, volume)
+        audio_data = generate_wave(freq, duration, wave_type, volume, BUFFER_LENGTH)
 
         if loop:
             play_audio_loop(audio_data)
@@ -82,14 +92,14 @@ if mode == "Générateur de fréquence":
             buffer.seek(0)
             st.audio(buffer, format="audio/wav")
 
-        st.success(f"Son généré : {freq} Hz – {duration} s – {wave_type}")
+        st.success(f"Signal généré : {freq} Hz – {duration}s – {wave_type}")
 
 
 # =====================================================================
-#   MODE 2 : PIANO + ACCORDS + BOUCLE
+#   MODE 2 : PIANO POLYPHONIQUE
 # =====================================================================
 else:
-    st.header("Piano polyphonique")
+    st.header("Piano polyphonique (accords)")
 
     notes_freq = {
         "C4": 261.63, "C#4": 277.18, "D4": 293.66, "D#4": 311.13,
@@ -99,35 +109,45 @@ else:
     }
 
     selected_notes = st.multiselect(
-        "Sélectionne plusieurs notes pour un accord :",
+        "Sélectionne plusieurs touches pour un accord :",
         list(notes_freq.keys())
     )
 
-    duration = st.slider("Durée (s)", 0.1, 5.0, 1.0)
-    volume = st.slider("Volume", 0.0, 1.0, 0.5)
+    duration = st.slider("Durée du cycle (s)", 0.1, 5.0, 1.0)
     wave_type = st.selectbox("Forme d’onde", ["Sinus", "Carré", "Dent de scie"], key="piano_wave")
-    loop = st.checkbox("Lecture en boucle (accord)")
+    volume = st.slider("Volume", 0.0, 1.0, 0.5)
 
-if st.button("Jouer l’accord"):
+    loop = st.checkbox("Lecture en boucle (buffer 60s)")
 
-    if not selected_notes:
-        st.warning("Choisis au moins une touche.")
-    else:
-        waves = [generate_wave(notes_freq[n], duration, wave_type, volume) for n in selected_notes]
+    if st.button("Jouer l’accord"):
 
-        # CORRECTION ICI
-        mix = np.sum(waves, axis=0).astype(np.float64)
-        norm = np.max(np.abs(mix)) + 1e-9
-        mix = mix / norm
-
-        audio = np.int16(mix * 32767)
-
-        if loop:
-            play_audio_loop(audio)
+        if not selected_notes:
+            st.warning("Choisis au moins une note.")
         else:
-            buffer = BytesIO()
-            wavfile.write(buffer, sample_rate, audio)
-            buffer.seek(0)
-            st.audio(buffer, format="audio/wav")
+            # Génération des voix
+            waves = [
+                generate_wave(notes_freq[n], duration, wave_type, volume, duration)   # note courte
+                for n in selected_notes
+            ]
 
-        st.success("Accord : " + ", ".join(selected_notes))
+            # Somme polyphonique
+            mix = np.sum(waves, axis=0).astype(np.float64)
+            norm = np.max(np.abs(mix)) + 1e-9
+            mix = mix / norm
+
+            # Répétition pour produire un long buffer de 60s
+            repeat_count = int(BUFFER_LENGTH // duration) + 1
+            long_mix = np.tile(mix, repeat_count)
+            long_mix = long_mix[:int(BUFFER_LENGTH * sample_rate)]
+
+            audio = np.int16(long_mix * 32767)
+
+            if loop:
+                play_audio_loop(audio)
+            else:
+                buffer = BytesIO()
+                wavfile.write(buffer, sample_rate, audio)
+                buffer.seek(0)
+                st.audio(buffer, format="audio/wav")
+
+            st.success("Accord joué : " + ", ".join(selected_notes))
