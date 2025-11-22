@@ -4,70 +4,155 @@ from scipy.io import wavfile
 from io import BytesIO
 import base64
 
-st.set_page_config(page_title="Générateur de son", page_icon="🎵")
+st.set_page_config(page_title="Piano Streamlit", layout="wide")
 
-st.title("🎵 Générateur de son – Version avec boucle fiable")
+st.title("🎹 Piano – Génération d'accords")
 
-st.subheader("Paramètres du signal")
+# -------------------------------------------------------------
+# Définition des notes (octave 4 ici)
+# -------------------------------------------------------------
+notes_freq = {
+    "C4": 261.63,  # Do
+    "C#4": 277.18,
+    "D4": 293.66,
+    "D#4": 311.13,
+    "E4": 329.63,
+    "F4": 349.23,
+    "F#4": 369.99,
+    "G4": 392.00,
+    "G#4": 415.30,
+    "A4": 440.00,
+    "A#4": 466.16,
+    "B4": 493.88,
+    "C5": 523.25,
+}
 
-# Saisie numérique de la fréquence
-freq = st.number_input("Fréquence (Hz)", min_value=1.0, max_value=20000.0, value=440.0, step=1.0)
+white_keys = ["C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5"]
+black_keys = ["C#4", "D#4", None, "F#4", "G#4", "A#4", None]
 
-# Slider optionnel pour ajuster rapidement (lié à la même variable si tu veux)
-freq_slider = st.slider("Ajustement rapide (50–2000 Hz)", 50, 2000, int(freq), 1)
-freq = float(freq_slider)
+# -------------------------------------------------------------
+# Style CSS du piano
+# -------------------------------------------------------------
+piano_css = """
+<style>
+.piano {
+    position: relative;
+    width: 700px;
+    height: 200px;
+    margin: 20px auto;
+}
 
-# Durée jusqu’à 5 minutes (300 s)
-duration = st.slider("Durée (secondes)", 0.1, 300.0, 1.0, 0.1)
+.white-key {
+    width: 60px;
+    height: 200px;
+    background: white;
+    border: 1px solid black;
+    float: left;
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    line-height: 180px;
+}
 
+.black-key {
+    width: 40px;
+    height: 120px;
+    background: black;
+    position: absolute;
+    z-index: 2;
+    margin-left: -20px;
+    text-align: center;
+    line-height: 100px;
+    color: white;
+}
+
+.key-selected {
+    background: #88c0ff !important;
+}
+</style>
+"""
+
+st.markdown(piano_css, unsafe_allow_html=True)
+
+# -------------------------------------------------------------
+# Sélection multiple des touches
+# -------------------------------------------------------------
+st.subheader("Sélection des notes (accord)")
+
+selected_notes = st.multiselect(
+    "Choisis plusieurs touches du piano pour générer un accord :",
+    list(notes_freq.keys()),
+    default=[]
+)
+
+# -------------------------------------------------------------
+# Dessin du piano interactif
+# (les touches cliquées changent l'état du multiselect)
+# -------------------------------------------------------------
+st.markdown("<div class='piano'>", unsafe_allow_html=True)
+
+# Dessin touches blanches
+for i, note in enumerate(white_keys):
+    selected_class = " key-selected" if note in selected_notes else ""
+    st.markdown(
+        f"<div class='white-key{selected_class}'>{note}</div>",
+        unsafe_allow_html=True
+    )
+
+# Dessin touches noires par-dessus
+for i, note in enumerate(black_keys):
+    if note is None:
+        continue
+    x = i * 60 + 45  # positionnement entre touches blanches
+    selected_class = " key-selected" if note in selected_notes else ""
+    st.markdown(
+        f"<div class='black-key{selected_class}' style='left:{x}px'>{note}</div>",
+        unsafe_allow_html=True
+    )
+
+st.markdown("</div>", unsafe_allow_html=True)
+
+# -------------------------------------------------------------
+# Paramètres son
+# -------------------------------------------------------------
+duration = st.slider("Durée (s)", 0.1, 5.0, 1.0, 0.1)
+volume = st.slider("Volume", 0.0, 1.0, 0.5, 0.05)
 wave_type = st.selectbox("Forme d’onde", ["Sinus", "Carré", "Dent de scie"])
-volume = st.slider("Volume (0 à 1)", 0.0, 1.0, 0.5, 0.05)
-
-loop = st.checkbox("Lecture en boucle")
 
 sample_rate = 44100
 
-
-def generate_wave(freq, duration, wave_type, volume, sample_rate=44100):
-    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
-
+def generate_wave(freq, duration, wave_type, volume, sr):
+    t = np.linspace(0, duration, int(sr*duration), endpoint=False)
     if wave_type == "Sinus":
         wave = np.sin(2 * np.pi * freq * t)
     elif wave_type == "Carré":
         wave = np.sign(np.sin(2 * np.pi * freq * t))
     elif wave_type == "Dent de scie":
         wave = 2 * (t * freq - np.floor(0.5 + t * freq))
+    return volume * wave
+
+# -------------------------------------------------------------
+# Bouton pour jouer l'accord
+# -------------------------------------------------------------
+if st.button("Jouer l'accord"):
+
+    if not selected_notes:
+        st.warning("Sélectionne au moins une note.")
     else:
-        wave = np.sin(2 * np.pi * freq * t)
+        # Génération de l’accord (somme des signaux)
+        waves = [
+            generate_wave(notes_freq[n], duration, wave_type, volume, sample_rate)
+            for n in selected_notes
+        ]
+        mix = np.sum(waves, axis=0)
+        mix /= np.max(np.abs(mix)) + 1e-9  # normalisation
+        audio = np.int16(mix * 32767)
 
-    wave = volume * wave
-    return np.int16(wave * 32767)
+        buffer = BytesIO()
+        wavfile.write(buffer, sample_rate, audio)
+        buffer.seek(0)
 
-
-st.subheader("Génération")
-
-if st.button("Générer le son"):
-    audio_data = generate_wave(freq, duration, wave_type, volume, sample_rate)
-
-    # Écriture dans un buffer WAV
-    buffer = BytesIO()
-    wavfile.write(buffer, sample_rate, audio_data)
-    buffer.seek(0)
-
-    if not loop:
-        # Mode normal : Streamlit gère le lecteur
+        # Lecture audio
         st.audio(buffer, format="audio/wav")
-    else:
-        # Mode boucle : on encode en base64 et on utilise <audio loop>
-        wav_bytes = buffer.read()
-        b64 = base64.b64encode(wav_bytes).decode()
 
-        audio_html = f"""
-        <audio controls autoplay loop>
-            <source src="data:audio/wav;base64,{b64}" type="audio/wav">
-            Votre navigateur ne supporte pas l'audio HTML5.
-        </audio>
-        """
-        st.markdown(audio_html, unsafe_allow_html=True)
-
-    st.success(f"Son généré : {freq:.1f} Hz – {duration:.1f} s – forme {wave_type.lower()}.")
+        st.success(f"Accord joué : {', '.join(selected_notes)}")
