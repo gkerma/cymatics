@@ -96,17 +96,36 @@ if mode == "Générateur de fréquence":
 
 
 # =====================================================================
-#   MODE 2 : PIANO POLYPHONIQUE
+#   MODE 2 : PIANO POLYPHONIQUE AVEC DIAPASON AJUSTABLE
 # =====================================================================
 else:
-    st.header("Piano polyphonique (accords)")
+    st.header("Piano polyphonique (accords) avec diapason ajustable")
 
-    notes_freq = {
-        "C4": 261.63, "C#4": 277.18, "D4": 293.66, "D#4": 311.13,
-        "E4": 329.63, "F4": 349.23, "F#4": 369.99, "G4": 392.00,
-        "G#4": 415.30, "A4": 440.00, "A#4": 466.16, "B4": 493.88,
-        "C5": 523.25,
-    }
+    # Diapason ajustable (La4)
+    diapason = st.number_input(
+        "Diapason A4 (Hz)",
+        min_value=400.0,
+        max_value=500.0,
+        value=432.0,
+        step=0.1
+    )
+
+    # ------------------------------------------------------------------
+    # Calcul des fréquences en tempérament égal en fonction du diapason
+    # ------------------------------------------------------------------
+
+    # Notes de l’octave 4 et 5
+    note_order = [
+        ("C4", 40), ("C#4", 41), ("D4", 42), ("D#4", 43),
+        ("E4", 44), ("F4", 45), ("F#4", 46), ("G4", 47),
+        ("G#4", 48), ("A4", 49), ("A#4", 50), ("B4", 51),
+        ("C5", 52)
+    ]
+
+    def midi_to_freq(midi, a4=diapason):
+        return a4 * (2 ** ((midi - 49) / 12))
+
+    notes_freq = {name: midi_to_freq(midi) for name, midi in note_order}
 
     selected_notes = st.multiselect(
         "Sélectionne plusieurs touches pour un accord :",
@@ -122,20 +141,20 @@ else:
     if st.button("Jouer l’accord"):
 
         if not selected_notes:
-            st.warning("Choisis au moins une note.")
+            st.warning("Choisis au moins une touche.")
         else:
-            # Génération des voix
+            # Génération des voix (notes indépendantes)
             waves = [
-                generate_wave(notes_freq[n], duration, wave_type, volume, duration)   # note courte
+                generate_wave(notes_freq[n], duration, wave_type, volume, duration)
                 for n in selected_notes
             ]
 
-            # Somme polyphonique
+            # Somme des ondes (polyphonie)
             mix = np.sum(waves, axis=0).astype(np.float64)
             norm = np.max(np.abs(mix)) + 1e-9
             mix = mix / norm
 
-            # Répétition pour produire un long buffer de 60s
+            # Répéter pour un buffer long (60s)
             repeat_count = int(BUFFER_LENGTH // duration) + 1
             long_mix = np.tile(mix, repeat_count)
             long_mix = long_mix[:int(BUFFER_LENGTH * sample_rate)]
@@ -150,4 +169,7 @@ else:
                 buffer.seek(0)
                 st.audio(buffer, format="audio/wav")
 
-            st.success("Accord joué : " + ", ".join(selected_notes))
+            st.success(
+                "Accord joué : " + ", ".join(selected_notes)
+                + f" (Diapason A4 = {diapason} Hz)"
+            )
