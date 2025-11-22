@@ -70,4 +70,4 @@ if generate_btn or loop:
     # Boucle simple : refresher Streamlit toutes les X secondes
     if loop:
         time.sleep(duration)
-        st.experimental_rerun()
+        st.rerun()
