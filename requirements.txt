@@ -4,7 +4,6 @@ scipy
 matplotlib
 plotly
 mido
-python-rtmidi
+soundfile
 librosa
 pydub
-soundfile
