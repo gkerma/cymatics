@@ -2,3 +2,9 @@ streamlit
 numpy
 scipy
 matplotlib
+plotly
+mido
+python-rtmidi
+librosa
+pydub
+soundfile
