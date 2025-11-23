@@ -133,21 +133,21 @@ if section == "Synth":
 
     col1, col2 = st.columns(2)
 
-    # --- BOUCLE INFINIE ---
-    if not st.session_state.looping:
-        if col1.button("🔁 Boucle infinie"):
+    # --- BOUTON TOGGLE BOUCLE INFINIE / STOP ---
+    toggle = st.button("🔁 Boucle infinie" if not st.session_state.looping else "⏹️ Stop")
+    
+    if toggle:
+        # Si on clique alors que la boucle n'est pas active → activer
+        if not st.session_state.looping:
             st.session_state.looping = True
-
             wave = render_note(freq, duration, params)
-            long = np.tile(wave, 2000)    # buffer long
+            long = np.tile(wave, 2000)
             st.session_state.loop_wave = long
-
             play_loop_infinite()
-    else:
-        # --- STOP ---
-        if col2.button("⏹️ Stop"):
+    
+        # Si on clique alors que la boucle est active → STOP
+        else:
             stop_audio()
-
 
 ###############################################################################
 # PIANO
