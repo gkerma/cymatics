@@ -101,7 +101,7 @@ section = st.sidebar.selectbox("Section", ["Synth", "Piano", "Séquenceur"])
 ###############################################################################
 
 if section == "Synth":
-    st.header("Synthétiseur 432 Hz — Boucle infinie + STOP")
+    st.header("Synthétiseur 432 Hz — Boucle infinie stable")
 
     midi = st.slider("Note MIDI", 21, 108, 69)
     freq = midi_to_freq(midi)
@@ -116,26 +116,26 @@ if section == "Synth":
         volume=1.0,
     )
 
-    # Génération
-    wave = render_note(freq, duration, params)
-
-    # PLAY
-    if st.button("▶️ Jouer"):
-        st.session_state.looping = False
+    # PLAY NORMAL
+    if st.button("▶️ JOUER"):
+        st.session_state.looping = False  # force le mode STOP
+        wave = render_note(freq, duration, params)
         play_once(wave)
-
-    col1, col2 = st.columns(2)
 
     # BOUCLE INFINIE
     if not st.session_state.looping:
-        if col1.button("🔁 Boucle infinie"):
+        if st.button("🔁 BOUCLE INFINIE"):
             st.session_state.looping = True
-            reps = 1000  # buffer gigantesque
-            long = np.tile(wave, reps)
-            play_loop_infinite(long)
+
+            # IMPORTANT : ON REGÉNÈRE LE SON ICI !
+            wave = render_note(freq, duration, params)
+
+            # très long buffer => pas de tick
+            long_buffer = np.tile(wave, 2000)
+            play_loop_infinite(long_buffer)
     else:
-        # STOP
-        if col2.button("⏹️ Stop"):
+        if st.button("⏹️ STOP"):
+            st.session_state.looping = False
             stop_audio()
 
 
