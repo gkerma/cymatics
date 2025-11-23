@@ -76,7 +76,15 @@ if section == "Synth":
     if st.button("Play"):
         wave = render_note(freq, duration, params)
         wave_int = (wave * 32767).astype(np.int16)
-        st.audio(BytesIO(wave_int.tobytes()), format="audio/wav")
+        loop_mode = st.checkbox("Boucle 60 secondes (sans tick)")
+        if loop_mode:
+            reps = int(BUFFER_LENGTH / duration) + 1
+            long_wave = np.tile(wave, reps)
+            long_wave = long_wave[:int(BUFFER_LENGTH * SAMPLE_RATE)]
+            long_int = (long_wave * 32767).astype(np.int16)
+            play_audio_loop(long_int)
+        else:
+            st.audio(BytesIO(wave_int.tobytes()), format="audio/wav")
         oscilloscope(wave)
         spectrum_fft(wave)
         spectrogram(wave)
