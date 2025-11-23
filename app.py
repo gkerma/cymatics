@@ -18,6 +18,38 @@ from synth.brainwave_engine import (
 from synth.ai_music_gen import ai_music_brainwave
 from synth.brainwave_presets import BRAINWAVE_PRESETS_PRO
 
+# Diapason global (A4)
+diapason = st.sidebar.number_input(
+    "Diapason A4 (Hz)",
+    min_value=400.0,
+    max_value=500.0,
+    value=432.0,
+    step=0.1
+)
+
+def play_audio_loop(audio_int16, sample_rate=44100):
+    """Lecteur HTML5 qui boucle sans click."""
+    from base64 import b64encode
+    from io import BytesIO
+    from scipy.io.wavfile import write
+
+    buf = BytesIO()
+    write(buf, sample_rate, audio_int16)
+    buf.seek(0)
+    b64 = b64encode(buf.read()).decode()
+
+    html = f"""
+    <audio controls autoplay loop>
+        <source src="data:audio/wav;base64,{b64}" type="audio/wav">
+    </audio>
+    """
+
+    st.markdown(html, unsafe_allow_html=True)
+
+# conversion fréquence <-> MIDI
+def midi_to_freq(midi, a4=diapason):
+    return a4 * (2 ** ((midi - 69) / 12))
+
 SAMPLE_RATE = 44100
 BUFFER_LENGTH = 60
 
