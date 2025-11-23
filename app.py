@@ -212,8 +212,14 @@ with piano_col:
         note_names = ["C","C#","D","D#","E","F",
                       "F#","G","G#","A","A#","B"]
 
+        if not clicked_note or not isinstance(clicked_note, str) or len(clicked_note) < 2:
+            st.warning("Aucune note valide reçue.")
+            st.stop()
+        
+        # Maintenant c'est sûr :
         name = clicked_note[:-1]
         octave = int(clicked_note[-1])
+
         midi = note_names.index(name) + octave * 12
         freq_clicked = diapason * (2 ** ((midi - 69) / 12))
 
