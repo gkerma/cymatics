@@ -1,0 +1,1 @@
+# Piano component placeholder
