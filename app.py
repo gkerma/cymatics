@@ -4,6 +4,7 @@ from io import BytesIO
 from scipy.io.wavfile import write
 import base64
 import os
+import re
 
 # Synth modules
 from synth.engine import (
@@ -211,14 +212,19 @@ with piano_col:
         # Conversion note → MIDI
         note_names = ["C","C#","D","D#","E","F",
                       "F#","G","G#","A","A#","B"]
-
-        if not clicked_note or not isinstance(clicked_note, str) or len(clicked_note) < 2:
-            st.warning("Aucune note valide reçue.")
-            st.stop()
         
-        # Maintenant c'est sûr :
-        name = clicked_note[:-1]
-        octave = int(clicked_note[-1])
+        regex = r"^([A-G]#?)([0-9])$"
+        
+        if clicked_note and isinstance(clicked_note, str):
+            match = re.match(regex, clicked_note)
+            if match:
+                name = match.group(1)
+                octave = int(match.group(2))
+            else:
+                st.warning("Format de note invalide : " + str(clicked_note))
+                st.stop()
+        else:
+            st.stop()  # aucune note → on arrête proprement
 
         midi = note_names.index(name) + octave * 12
         freq_clicked = diapason * (2 ** ((midi - 69) / 12))
