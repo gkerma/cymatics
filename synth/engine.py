@@ -1,165 +1,55 @@
+
 import numpy as np
 
-from .oscillators import (
-    osc_sine, osc_square, osc_saw, osc_triangle,
-    osc_supersaw, osc_fm, osc_am, osc_noise, osc_additive
-)
-from .envelopes import adsr
-from .lfo import apply_lfo_amplitude, apply_lfo_vibrato, apply_lfo_filter
+SAMPLE_RATE=44100
 
+def osc_sine(freq, t): return np.sin(2*np.pi*freq*t)
+def osc_square(freq, t): return np.sign(np.sin(2*np.pi*freq*t))
+def osc_saw(freq, t): return 2*(t*freq - np.floor(0.5 + t*freq))
+def osc_triangle(freq, t): return 2*np.abs(osc_saw(freq,t)) - 1
 
-###############################################################################
-# CONFIGURATION GLOBALE
-###############################################################################
+def supersaw(freq, t, n=7, detune=0.01):
+    sig=0
+    for i in range(n):
+        det = (i-n/2)*detune*freq
+        sig += osc_saw(freq+det, t)
+    return sig/n
 
-DEFAULT_SR = 44100
+def fm(freq, t, mod_freq, mod_index):
+    return np.sin(2*np.pi*freq*t + mod_index*np.sin(2*np.pi*mod_freq*t))
 
-OSC_TYPES = {
-    "sine": osc_sine,
-    "square": osc_square,
-    "saw": osc_saw,
-    "triangle": osc_triangle,
-    "supersaw": osc_supersaw,
-    "noise": lambda freq, t: osc_noise(t),
-    "fm": osc_fm,
-    "am": osc_am,
-    "additive": osc_additive
-}
+def am(freq, t, mod_freq, depth):
+    return (1+depth*np.sin(2*np.pi*mod_freq*t))*np.sin(2*np.pi*freq*t)
 
+def adsr(t, a,d,s,r, dur):
+    env=np.ones_like(t)*s
+    env[t<a]= (t[t<a]/a)
+    env[(t>=a)&(t<a+d)] = 1 - (1-s)*((t[(t>=a)&(t<a+d)]-a)/d)
+    env[t>dur-r] = s*(1-((t[t>dur-r]-(dur-r))/r))
+    env[t>=dur]=0
+    return env
 
-###############################################################################
-# RENDU D’UNE SEULE NOTE
-###############################################################################
+def render_note(freq, dur, p, sr=SAMPLE_RATE):
+    N=int(dur*sr)
+    t=np.linspace(0,dur,N,endpoint=False)
+    osc=p.get("osc","sine")
+    if osc=="sine": wave=osc_sine(freq,t)
+    elif osc=="square": wave=osc_square(freq,t)
+    elif osc=="saw": wave=osc_saw(freq,t)
+    elif osc=="triangle": wave=osc_triangle(freq,t)
+    elif osc=="supersaw": wave=supersaw(freq,t)
+    elif osc=="fm": wave=fm(freq,t,p["mod_freq"],p["mod_index"])
+    elif osc=="am": wave=am(freq,t,p["mod_freq"],p["mod_depth"])
+    else: wave=osc_sine(freq,t)
 
-def render_note(
-    freq,
-    duration,
-    params,
-    sample_rate=DEFAULT_SR
-):
-    """
-    Génère une note complète avec :
-    - oscillateur
-    - ADSR
-    - LFO (vibrato, tremolo, filter)
-    - shaping & normalisation
-    """
+    env = adsr(t, p["attack"], p["decay"], p["sustain"], p["release"], dur)
+    wave = wave*env*p.get("volume",1.0)
+    return wave.astype(np.float32)
 
-    osc = params.get("osc", "sine")
-    A = params.get("attack", 0.01)
-    D = params.get("decay", 0.1)
-    S = params.get("sustain", 0.8)
-    R = params.get("release", 0.1)
-    env_mode = params.get("env_mode", "linear")
-
-    lfo_rate = params.get("lfo_rate", 0.0)
-    lfo_depth = params.get("lfo_depth", 0.0)
-    lfo_mode = params.get("lfo_mode", None)
-    lfo_wave = params.get("lfo_wave", "sine")
-
-    volume = params.get("volume", 1.0)
-    harmonics = params.get("harmonics", 5)  # for additive
-
-    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
-
-    ###########################################################################
-    # OSCILLATEUR → signal brut
-    ###########################################################################
-    if osc not in OSC_TYPES:
-        osc = "sine"
-
-    if osc == "fm":
-        signal = osc_fm(freq, t, params.get("mod_freq", 2.0), params.get("mod_index", 3.0))
-    elif osc == "am":
-        signal = osc_am(freq, t, params.get("mod_freq", 2.0), params.get("mod_depth", 0.5))
-    elif osc == "additive":
-        signal = osc_additive(freq, t, harmonics=harmonics)
-    else:
-        signal = OSC_TYPES[osc](freq, t)
-
-    ###########################################################################
-    # LFO → vibrato (modulation de fréquence)
-    ###########################################################################
-    if lfo_mode == "vibrato" and lfo_depth > 0:
-        inst_freq = apply_lfo_vibrato(freq, t, rate=lfo_rate, depth=lfo_depth, waveform=lfo_wave)
-        signal = np.sin(2 * np.pi * inst_freq * t)
-
-    ###########################################################################
-    # LFO → tremolo (modulation de volume)
-    ###########################################################################
-    if lfo_mode == "tremolo" and lfo_depth > 0:
-        signal = apply_lfo_amplitude(signal, t, lfo_rate, lfo_depth, waveform=lfo_wave)
-
-    ###########################################################################
-    # LFO → filter modulation
-    ###########################################################################
-    if lfo_mode == "filter" and lfo_depth > 0:
-        signal = apply_lfo_filter(signal, t, lfo_rate, lfo_depth, waveform=lfo_wave)
-
-    ###########################################################################
-    # ADSR
-    ###########################################################################
-    env = adsr(
-        env_mode,
-        A, D, S, R,
-        sample_rate,
-        duration
-    )
-    signal *= env
-
-    ###########################################################################
-    # Volume
-    ###########################################################################
-    signal *= volume
-
-    ###########################################################################
-    # Normalisation
-    ###########################################################################
-    peak = np.max(np.abs(signal)) + 1e-9
-    signal /= peak
-
-    return signal.astype(np.float32)
-
-
-###############################################################################
-# RENDU D’UN ACCORD (PLUSIEURS NOTES)
-###############################################################################
-
-def render_chord(freq_list, duration, params, sample_rate=DEFAULT_SR):
-    """
-    Génère un accord polyphonique.
-    freq_list = [freq1, freq2, freq3...]
-    """
-
-    waves = [
-        render_note(freq, duration, params, sample_rate)
-        for freq in freq_list
-    ]
-
-    mix = np.sum(waves, axis=0)
-
-    # Normalisation polyphonique
-    peak = np.max(np.abs(mix)) + 1e-9
-    mix /= peak
-
+def render_chord(freqs, dur, p, sr=SAMPLE_RATE):
+    waves=[render_note(f,dur,p,sr) for f in freqs]
+    mix=np.sum(waves,axis=0)
+    mix/=np.max(np.abs(mix))+1e-9
     return mix.astype(np.float32)
 
-
-###############################################################################
-# CONVERSION → int16
-###############################################################################
-
-def to_int16(wave):
-    return (wave * 32767).astype(np.int16)
-
-
-###############################################################################
-# RENDU + CONVERSION DIRECTE POUR WAV
-###############################################################################
-
-def render_note_int16(freq, duration, params, sample_rate=DEFAULT_SR):
-    return to_int16(render_note(freq, duration, params, sample_rate))
-
-
-def render_chord_int16(freq_list, duration, params, sample_rate=DEFAULT_SR):
-    return to_int16(render_chord(freq_list, duration, params, sample_rate))
+def to_int16(w): return (w*32767).astype(np.int16)
