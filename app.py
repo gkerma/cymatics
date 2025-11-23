@@ -5,7 +5,7 @@ from scipy.io.wavfile import write
 import base64
 
 # Modules internes
-from synth.engine import render_note
+from synth.engine import render_note, render_chord
 from sequencer.stepseq import seq_multi_track
 from ui.piano_component import piano_component
 
