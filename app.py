@@ -4,23 +4,27 @@ from io import BytesIO
 from scipy.io.wavfile import write
 import base64
 
-# Imports internes
+# Modules internes
 from synth.engine import render_note
 from sequencer.stepseq import seq_multi_track
 from ui.piano_component import piano_component
 
 
 ###############################################################################
-# CONFIG
+# SETUP
 ###############################################################################
-SAMPLE_RATE = 44100
-BUFFER_LENGTH = 60  # boucle longue stable
 
 st.set_page_config(page_title="Cymatics DAW", layout="wide")
 
+SAMPLE_RATE = 44100
+
+# État global de boucle infinie
+if "looping" not in st.session_state:
+    st.session_state.looping = False
+
 
 ###############################################################################
-# AUDIO SYSTEM - VERSION HTML5 (fiable, autoplay)
+# AUDIO SYSTEM — LECTEUR HTML5 (AUTOPLAY + BOUCLE + STOP)
 ###############################################################################
 
 def float_to_int16(wave):
@@ -28,9 +32,8 @@ def float_to_int16(wave):
 
 
 def play_once(wave, sample_rate=SAMPLE_RATE):
-    """Lecture d'un son une fois, via lecteur HTML5 (autoplay)."""
+    """Lecture unique via HTML5 autoplay."""
     wave16 = float_to_int16(wave)
-
     buf = BytesIO()
     write(buf, sample_rate, wave16)
     buf.seek(0)
@@ -44,10 +47,12 @@ def play_once(wave, sample_rate=SAMPLE_RATE):
     st.markdown(html, unsafe_allow_html=True)
 
 
-def play_loop(wave, sample_rate=SAMPLE_RATE):
-    """Lecture en boucle infinie sans tick (HTML5)."""
-    wave16 = float_to_int16(wave)
+def play_loop_infinite(wave, sample_rate=SAMPLE_RATE):
+    """Lecture en boucle infinie tant que st.session_state.looping = True."""
+    if not st.session_state.looping:
+        return
 
+    wave16 = float_to_int16(wave)
     buf = BytesIO()
     write(buf, sample_rate, wave16)
     buf.seek(0)
@@ -59,6 +64,13 @@ def play_loop(wave, sample_rate=SAMPLE_RATE):
     </audio>
     """
     st.markdown(html, unsafe_allow_html=True)
+
+
+def stop_audio():
+    """Stoppe immédiatement la lecture."""
+    st.markdown("<audio></audio>", unsafe_allow_html=True)
+    st.session_state.looping = False
+    st.success("Lecture stoppée.")
 
 
 ###############################################################################
@@ -73,7 +85,6 @@ diapason = st.sidebar.number_input(
     step=0.1,
 )
 
-
 def midi_to_freq(midi):
     return diapason * (2 ** ((midi - 69) / 12))
 
@@ -86,18 +97,15 @@ section = st.sidebar.selectbox("Section", ["Synth", "Piano", "Séquenceur"])
 
 
 ###############################################################################
-# SECTION : SYNTH
+# SECTION SYNTH
 ###############################################################################
 
 if section == "Synth":
-    st.header("Synthétiseur 432 Hz — Audio OK")
+    st.header("Synthétiseur 432 Hz — Boucle infinie + STOP")
 
-    midi = st.slider("MIDI Note", 21, 108, 69)
+    midi = st.slider("Note MIDI", 21, 108, 69)
     freq = midi_to_freq(midi)
-
-    st.write(f"Fréquence : **{freq:.2f} Hz**")
-
-    duration = st.slider("Durée", 0.1, 10.0, 1.0)
+    duration = st.slider("Durée (s)", 0.1, 10.0, 1.0)
 
     params = dict(
         osc="sine",
@@ -108,28 +116,40 @@ if section == "Synth":
         volume=1.0,
     )
 
-    if st.button("JOUER"):
-        wave = render_note(freq, duration, params)
+    # Génération
+    wave = render_note(freq, duration, params)
+
+    # PLAY
+    if st.button("▶️ Jouer"):
+        st.session_state.looping = False
         play_once(wave)
 
-    if st.button("BOUCLE 60s"):
-        wave = render_note(freq, duration, params)
-        reps = int(BUFFER_LENGTH / duration) + 1
-        long = np.tile(wave, reps)[: int(BUFFER_LENGTH * SAMPLE_RATE)]
-        play_loop(long)
+    col1, col2 = st.columns(2)
+
+    # BOUCLE INFINIE
+    if not st.session_state.looping:
+        if col1.button("🔁 Boucle infinie"):
+            st.session_state.looping = True
+            reps = 1000  # buffer gigantesque
+            long = np.tile(wave, reps)
+            play_loop_infinite(long)
+    else:
+        # STOP
+        if col2.button("⏹️ Stop"):
+            stop_audio()
 
 
 ###############################################################################
-# SECTION : PIANO
+# SECTION PIANO
 ###############################################################################
 
 elif section == "Piano":
-    st.header("Piano Interactif 432 Hz")
+    st.header("Piano Interactif — Accordage 432 Hz — Boucle infinie + STOP")
 
     note = piano_component()
 
     if note:
-        st.success(f"Note : {note}")
+        st.success(f"Touche pressée : {note}")
 
         names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
         name = note[:-1]
@@ -137,8 +157,6 @@ elif section == "Piano":
 
         midi = names.index(name) + octave * 12
         freq = midi_to_freq(midi)
-
-        st.write(f"Fréquence : **{freq:.2f} Hz**")
 
         params = dict(
             osc="sine",
@@ -150,24 +168,35 @@ elif section == "Piano":
         )
 
         wave = render_note(freq, 1.0, params)
+
+        # PLAY
+        st.session_state.looping = False
         play_once(wave)
 
-        if st.button("BOUCLE 60s (PIANO)"):
-            reps = int(BUFFER_LENGTH / 1.0) + 1
-            long = np.tile(wave, reps)[: int(BUFFER_LENGTH * SAMPLE_RATE)]
-            play_loop(long)
+        col1, col2 = st.columns(2)
+
+        # BOUCLE INFINIE
+        if not st.session_state.looping:
+            if col1.button("🔁 Boucle infinie (piano)"):
+                st.session_state.looping = True
+                long = np.tile(wave, 3000)
+                play_loop_infinite(long)
+        else:
+            # STOP
+            if col2.button("⏹️ Stop"):
+                stop_audio()
 
 
 ###############################################################################
-# SECTION : SÉQUENCEUR
+# SECTION SEQUENCEUR
 ###############################################################################
 
 elif section == "Séquenceur":
-    st.header("Séquenceur minimal – 432 Hz")
+    st.header("Séquenceur 432 Hz — Boucle infinie + STOP")
 
+    # pattern basique
     note_list = ["C4","D4","E4","F4","G4","A4","B4"]
 
-    # TABLE DE FREQUENCE
     freq_map = {}
     names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
 
@@ -194,12 +223,21 @@ elif section == "Séquenceur":
 
     bpm = st.slider("BPM", 40, 200, 120)
 
-    if st.button("JOUER SÉQUENCE"):
-        wave = seq_multi_track(patterns, freq_map, bpm, params_tracks)
+    wave = seq_multi_track(patterns, freq_map, bpm, params_tracks)
+
+    # PLAY
+    if st.button("▶️ Jouer séquence"):
+        st.session_state.looping = False
         play_once(wave)
 
-    if st.button("BOUCLE 60s (SÉQUENCEUR)"):
-        wave = seq_multi_track(patterns, freq_map, bpm, params_tracks)
-        reps = int(BUFFER_LENGTH / (len(wave) / SAMPLE_RATE)) + 1
-        long = np.tile(wave, reps)[: int(BUFFER_LENGTH * SAMPLE_RATE)]
-        play_loop(long)
+    col1, col2 = st.columns(2)
+
+    # BOUCLE INFINIE
+    if not st.session_state.looping:
+        if col1.button("🔁 Boucle infinie (séquenceur)"):
+            st.session_state.looping = True
+            long = np.tile(wave, 1000)
+            play_loop_infinite(long)
+    else:
+        if col2.button("⏹️ Stop"):
+            stop_audio()
